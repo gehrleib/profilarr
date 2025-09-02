@@ -33,14 +33,7 @@ def revert_file(repo_path, file_path):
                 message = f"New file {file_path} has been removed."
             except FileNotFoundError:
                 message = f"File {file_path} was already removed."
-            return True, message
-
-        # Check if file is staged for deletion
-        staged_deletions = repo.index.diff("HEAD", R=True)
-        is_staged_for_deletion = any(d.a_path == file_path
-                                     for d in staged_deletions)
-
-        if is_staged_for_deletion:
+        elif is_staged_for_deletion:
             # Restore file staged for deletion
             repo.git.reset("--", file_path)
             repo.git.checkout('HEAD', "--", file_path)
@@ -51,7 +44,7 @@ def revert_file(repo_path, file_path):
             repo.git.restore('--staged', "--", file_path)
             message = f"File {file_path} has been reverted."
 
-        # Reload cache after revert
+        # Reload cache after ANY revert operation
         from ...data.cache import data_cache
         data_cache.initialize(force_reload=True)
 

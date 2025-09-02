@@ -9,16 +9,6 @@ from .logger import get_import_logger
 
 logger = logging.getLogger(__name__)
 
-# Cache patterns at module level to avoid reloading
-_CACHED_PATTERNS = None
-
-def get_cached_patterns():
-    """Get cached regex patterns, loading them once on first access."""
-    global _CACHED_PATTERNS
-    if _CACHED_PATTERNS is None:
-        _CACHED_PATTERNS = load_regex_patterns()
-    return _CACHED_PATTERNS
-
 
 def compile_format_to_api_structure(
     format_yaml: Dict[str, Any],
@@ -35,7 +25,7 @@ def compile_format_to_api_structure(
         Compiled format ready for API
     """
     target_app = TargetApp.RADARR if arr_type.lower() == 'radarr' else TargetApp.SONARR
-    patterns = get_cached_patterns()
+    patterns = load_regex_patterns()
     
     compiled = {
         'name': format_yaml.get('name', 'Unknown')
