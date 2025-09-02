@@ -26,6 +26,11 @@ def revert_file(repo_path, file_path):
         untracked_files = repo.untracked_files
         is_untracked = any(f == file_path for f in untracked_files)
 
+        # Check if file is staged for deletion
+        staged_deletions = repo.index.diff("HEAD", R=True)
+        is_staged_for_deletion = any(d.a_path == file_path
+                                     for d in staged_deletions)
+
         if is_untracked:
             # For untracked files, we need to remove them
             try:
