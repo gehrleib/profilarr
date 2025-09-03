@@ -22,6 +22,11 @@ class ProfileStrategy(ImportStrategy):
         Returns:
             Dictionary with 'profiles' and 'formats' keys
         """
+        from ..utils import load_regex_patterns
+        
+        # Load all regex patterns once at the start
+        patterns = load_regex_patterns()
+        
         profiles = []
         all_formats = []
         processed_formats: Set[str] = set()
@@ -49,7 +54,7 @@ class ProfileStrategy(ImportStrategy):
                     
                     try:
                         format_yaml = load_yaml(f"custom_format/{format_name}.yml")
-                        compiled_format = compile_format_to_api_structure(format_yaml, self.arr_type)
+                        compiled_format = compile_format_to_api_structure(format_yaml, self.arr_type, patterns)
                         
                         if self.import_as_unique:
                             compiled_format['name'] = self.add_unique_suffix(compiled_format['name'])
@@ -72,7 +77,7 @@ class ProfileStrategy(ImportStrategy):
                         
                         for lang_format in language_formats:
                             lang_name = lang_format.get('name', 'Language format')
-                            compiled_lang = compile_format_to_api_structure(lang_format, self.arr_type)
+                            compiled_lang = compile_format_to_api_structure(lang_format, self.arr_type, patterns)
                             
                             if self.import_as_unique:
                                 compiled_lang['name'] = self.add_unique_suffix(compiled_lang['name'])

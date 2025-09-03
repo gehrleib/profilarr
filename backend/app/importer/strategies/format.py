@@ -22,6 +22,11 @@ class FormatStrategy(ImportStrategy):
         Returns:
             Dictionary with 'formats' key containing compiled formats
         """
+        from ..utils import load_regex_patterns
+        
+        # Load all regex patterns once at the start
+        patterns = load_regex_patterns()
+        
         formats = []
         failed = []
         import_logger = get_import_logger()
@@ -35,7 +40,7 @@ class FormatStrategy(ImportStrategy):
                 format_yaml = load_yaml(f"custom_format/{filename}.yml")
                 
                 # Compile to API structure
-                compiled = compile_format_to_api_structure(format_yaml, self.arr_type)
+                compiled = compile_format_to_api_structure(format_yaml, self.arr_type, patterns)
                 
                 # Add unique suffix if needed
                 if self.import_as_unique:
