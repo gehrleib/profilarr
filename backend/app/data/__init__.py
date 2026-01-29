@@ -7,6 +7,7 @@ from .utils import (get_category_directory, load_yaml_file, validate,
                     test_regex_pattern, test_format_conditions,
                     check_delete_constraints, filename_to_display)
 from ..db import add_format_to_renames, remove_format_from_renames, is_format_in_renames
+from .cache import data_cache
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -16,43 +17,19 @@ bp = Blueprint('data', __name__)
 @bp.route('/<string:category>', methods=['GET'])
 def retrieve_all(category):
     try:
-        directory = get_category_directory(category)
-        files = [f for f in os.listdir(directory) if f.endswith('.yml')]
-        logger.debug(f"Found {len(files)} files in {category}")
-
-        if not files:
-            return jsonify([]), 200
-
-        result = []
-        errors = 0
-        for file_name in files:
-            file_path = os.path.join(directory, file_name)
-            try:
-                content = load_yaml_file(file_path)
-                # Add metadata for custom formats
-                if category == 'custom_format':
-                    content['metadata'] = {
-                        'includeInRename':
-                        is_format_in_renames(content['name'])
+        # Use cache instead of reading from disk
+        items = data_cache.get_all(category)
+        
+        # Add metadata for custom formats
+        if category == 'custom_format':
+            for item in items:
+                if 'content' in item and 'name' in item['content']:
+                    item['content']['metadata'] = {
+                        'includeInRename': is_format_in_renames(item['content']['name'])
                     }
-                result.append({
-                    "file_name":
-                    file_name,
-                    "content":
-                    content,
-                    "modified_date":
-                    get_file_modified_date(file_path)
-                })
-            except yaml.YAMLError:
-                errors += 1
-                result.append({
-                    "file_name": file_name,
-                    "error": "Failed to parse YAML"
-                })
-
-        logger.info(
-            f"Processed {len(files)} {category} files ({errors} errors)")
-        return jsonify(result), 200
+        
+        logger.info(f"Retrieved {len(items)} {category} items from cache")
+        return jsonify(items), 200
 
     except ValueError as ve:
         logger.error(ve)
@@ -127,6 +104,10 @@ def handle_item(category, name):
 
                 # Then delete the file
                 os.remove(file_path)
+                
+                # Update cache
+                data_cache.remove_item(category, file_name)
+                
                 return jsonify(
                     {"message": f"Successfully deleted {file_name}"}), 200
             except OSError as e:
@@ -226,6 +207,32 @@ def handle_item(category, name):
         return jsonify({"error": "An unexpected error occurred"}), 500
 
 
+@bp.route('/regex/verify', methods=['POST'])
+def verify_regex():
+    """Verify a regex pattern using .NET regex engine via PowerShell"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+        
+        pattern = data.get('pattern')
+        if not pattern:
+            return jsonify({"error": "Pattern is required"}), 400
+        
+        from .utils import verify_dotnet_regex
+        
+        success, message = verify_dotnet_regex(pattern)
+        
+        if success:
+            return jsonify({"valid": True, "message": "Pattern is valid"}), 200
+        else:
+            return jsonify({"valid": False, "error": message}), 200
+    
+    except Exception as e:
+        logger.exception("Error verifying regex pattern")
+        return jsonify({"valid": False, "error": str(e)}), 500
+
+
 @bp.route('/<string:category>/test', methods=['POST'])
 def run_tests(category):
     logger.info(f"Received test request for category: {category}")
@@ -233,25 +240,29 @@ def run_tests(category):
     try:
         data = request.get_json()
         if not data:
-            logger.warning("Rejected test request - no JSON data provided")
+            logger.warning("Test request rejected: no JSON data")
             return jsonify({"error": "No JSON data provided"}), 400
 
         tests = data.get('tests', [])
         if not tests:
-            logger.warning("Rejected test request - no test cases provided")
+            logger.warning("Test request rejected: no tests provided")
             return jsonify({"error":
                             "At least one test case is required"}), 400
 
         if category == 'regex_pattern':
             pattern = data.get('pattern')
-            logger.info(f"Processing regex test request - Pattern: {pattern}")
 
             if not pattern:
-                logger.warning("Rejected test request - missing pattern")
+                logger.warning("Test request rejected: missing pattern")
                 return jsonify({"error": "Pattern is required"}), 400
 
             success, message, updated_tests = test_regex_pattern(
                 pattern, tests)
+            
+            if success and updated_tests:
+                passed = sum(1 for t in updated_tests if t.get('passes'))
+                total = len(updated_tests)
+                logger.info(f"Tests completed: {passed}/{total} passed")
 
         elif category == 'custom_format':
             conditions = data.get('conditions', [])
@@ -274,10 +285,8 @@ def run_tests(category):
             return jsonify(
                 {"error": "Testing not supported for this category"}), 400
 
-        logger.info(f"Test execution completed - Success: {success}")
-
         if not success:
-            logger.warning(f"Test execution failed - {message}")
+            logger.error(f"Test execution failed: {message}")
             return jsonify({"success": False, "message": message}), 400
 
         return jsonify({"success": True, "tests": updated_tests}), 200
